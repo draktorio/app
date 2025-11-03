@@ -34,7 +34,7 @@ pipeline {
                         docker stack rm ${SWARM_STACK_NAME} || true
                         sleep 30
                         
-                        # Удаляем томы базы данных чтобы гарантировать пересоздание
+                        
                         docker volume rm ${SWARM_STACK_NAME}_db_data || true
                         docker volume prune -f || true
                     """
@@ -140,3 +140,4 @@ pipeline {
         }
     }
 }
+
