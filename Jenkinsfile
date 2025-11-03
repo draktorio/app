@@ -20,17 +20,19 @@ pipeline {
         stage('Build Docker Images') {
             steps {
                 script {
-                    sh "docker build -f php.Dockerfile . -t draktorio/crudback ."
-                    sh "docker build -f mysql.Dockerfile . -t draktorio/mysql ."
+                    // Правильный синтаксис docker build
+                    sh "docker build -f php.Dockerfile -t draktorio/crudback ."
+                    sh "docker build -f mysql.Dockerfile -t draktorio/mysql ."
                 }
             } 
         }
             
-        stage('Deploy to Docekr Swarm') {
+        stage('Deploy to Docker Swarm') {
             steps {
                 script {
+                    // Инициализация Swarm только если не активен
                     sh '''
-                        if ! docker info | grep -q "Swarm^ active"; then
+                        if ! docker info | grep -q "Swarm: active"; then
                             docker swarm init || true
                         fi
                     '''
@@ -43,30 +45,64 @@ pipeline {
             steps {
                 script {
                     echo "Ожидание запуска сервисов..."
-                    sleep time: 30, until: 'SECONDS'
+                    sleep 30
                     
-                    echo 'Proverka dotupnosti front...'
+                    echo 'Проверка доступности фронта...'
                     sh """
                         if ! curl -fsS ${FRONTEND_URL}; then
-                           echo 'Front nedoztupen'
+                           echo 'Front недоступен'
                            exit 1
                         fi
                     """
                     
-                    echo 'Polucheni ID kontejnera bd...'
+                    echo 'Получение ID контейнера базы данных...'
                     def dbContainerId = sh(
                         script: "docker ps --filter name=${SWARM_STACK_NAME}_${DB_SERVICE} --format '{{.ID}}'",
                         returnStdout: true
-                        ).trim()
-                        
-                        if (!dbContainerId) {
-                            error("Kontainer db ne najden")
-                        }
-                        
-                        echo 'Podklucheni k MySQL u proverka tablic...'
-                        sh """
-                            docekr exec ${dbContainerId} mysql -u${DB_USER} -p${DB_PASSWORD} -e 'USE ${DB_NAME}; SHOW TABLES;'
-                        """
+                    ).trim()
+                    
+                    if (!dbContainerId) {
+                        error("Контейнер DB не найден")
+                    }
+                    
+                    echo 'Подключение к MySQL и проверка таблиц...'
+                    sh """
+                        docker exec ${dbContainerId} mysql -u${DB_USER} -p${DB_PASSWORD} -e 'USE ${DB_NAME}; SHOW TABLES;'
+                    """
+
+                    // ==============================
+                    // Проверка поля description
+                    // ==============================
+                    echo 'Проверка поля description...'
+
+                    // Получаем тип поля
+                    def fieldType = sh(
+                        script: """
+                            docker exec ${dbContainerId} mysql -u${DB_USER} -p${DB_PASSWORD} -D ${DB_NAME} -N -e \\
+                            "SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='products' AND COLUMN_NAME='description';"
+                        """,
+                        returnStdout: true
+                    ).trim()
+
+                    echo "Тип поля description: ${fieldType}"
+                    if (fieldType.toLowerCase() != 'text') {
+                        error("Ошибка: поле description не TEXT")
+                    }
+
+                    // Проверка значения
+                    def descValue = sh(
+                        script: """
+                            docker exec ${dbContainerId} mysql -u${DB_USER} -p${DB_PASSWORD} -D ${DB_NAME} -N -e \\
+                            "SELECT description FROM products WHERE id=1;"
+                        """,
+                        returnStdout: true
+                    ).trim()
+
+                    if (descValue != 'text') {
+                        error("Ошибка: значение description не соответствует 'text'")
+                    }
+
+                    echo 'Проверка поля description пройдена успешно!'
                 }
             }
         }  
@@ -84,3 +120,4 @@ pipeline {
         }
     }
 }
+
