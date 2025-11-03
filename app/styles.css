@@ -1,0 +1,43 @@
+body {
+    font-family: Arial, sans-serif;
+    margin: 40px;
+    color: #333;
+}
+
+h1 {
+    color: #0056b3;
+}
+
+.record {
+    border: 1px solid #ddd;
+    padding: 15px;
+    margin-bottom: 20px;
+    background-color: #f9f9f9;
+}
+
+.inline-form {
+    display: inline;
+    margin-left: 10px;
+}
+
+button {
+    background-color: #0056b3;
+    color: white;
+    border: none;
+    padding: 8px 12px;
+    cursor: pointer;
+}
+
+button:hover {
+    background-color: #003d80;
+}
+
+form {
+    margin-top: 20px;
+}
+
+.recordCount {
+    font-weight: bold;
+    color: #0056b3;
+    font-size: 1.2em;
+}
