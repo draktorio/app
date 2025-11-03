@@ -31,12 +31,18 @@ pipeline {
                 script {
                     // Принудительно удаляем стек и тома
                     sh """
+                        # Удаляем стек
                         docker stack rm ${SWARM_STACK_NAME} || true
                         sleep 30
                         
+                        # Удаляем именованный том mysql-data
+                        docker volume rm ${SWARM_STACK_NAME}_mysql-data || true
                         
-                        docker volume rm ${SWARM_STACK_NAME}_db_data || true
+                        # Очищаем все неиспользуемые тома
                         docker volume prune -f || true
+                        
+                        # Убеждаемся что все контейнеры остановлены
+                        docker ps -q --filter name=${SWARM_STACK_NAME} | xargs -r docker rm -f || true
                     """
                 }
             }
@@ -83,6 +89,17 @@ pipeline {
                         error("Контейнер DB не найден")
                     }
                     
+                    // Ждем пока база данных будет готова
+                    echo "Ожидание готовности базы данных..."
+                    sh """
+                        timeout 60s bash -c '
+                            until docker exec ${dbContainerId} mysql -u${DB_USER} -p${DB_PASSWORD} -e "SELECT 1;" > /dev/null 2>&1; do
+                                echo "Ждем базу данных..."
+                                sleep 5
+                            done
+                        '
+                    """
+                    
                     echo 'Подключение к MySQL и проверка таблиц...'
                     sh """
                         docker exec ${dbContainerId} mysql -u${DB_USER} -p${DB_PASSWORD} -e 'USE ${DB_NAME}; SHOW TABLES;'
@@ -96,13 +113,13 @@ pipeline {
                     // Дополнительная проверка - выводим структуру таблицы для отладки
                     echo 'Вывод структуры таблицы records:'
                     sh """
-                        docker exec ${dbContainerId} mysql -u${DB_USER} -p${DB_PASSWORD} -D ${DB_NAME} -e "DESCRIBE records;"
+                        docker exec ${dbContainerId} mysql -u${DB_USER} -p${DB_PASSWORD} -D ${DB_NAME} -e "DESCRIBE records;" || true
                     """
 
                     def fieldType = sh(
                         script: """
                             docker exec ${dbContainerId} mysql -u${DB_USER} -p${DB_PASSWORD} -D ${DB_NAME} -N -e \\
-                            "SELECT DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='records' AND COLUMN_NAME='description';"
+                            "SELECT DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='records' AND COLUMN_NAME='description';" 2>/dev/null || echo "unknown"
                         """,
                         returnStdout: true
                     ).trim().toLowerCase()
@@ -121,7 +138,7 @@ pipeline {
                     // Дополнительная проверка - выводим все данные для отладки
                     echo 'Вывод всех записей из таблицы:'
                     sh """
-                        docker exec ${dbContainerId} mysql -u${DB_USER} -p${DB_PASSWORD} -D ${DB_NAME} -e "SELECT * FROM records;"
+                        docker exec ${dbContainerId} mysql -u${DB_USER} -p${DB_PASSWORD} -D ${DB_NAME} -e "SELECT * FROM records;" || true
                     """
                 }
             }
@@ -140,4 +157,3 @@ pipeline {
         }
     }
 }
-
