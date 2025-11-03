@@ -83,11 +83,14 @@ pipeline {
 
                     echo "Тип поля description: ${fieldType}"
 
-                    if (fieldType != 'text') {
-                        error("Ошибка: поле description должно быть TEXT, текущий тип: ${fieldType}")
+                    // Исправленная проверка
+                    if (fieldType == 'varchar') {
+                        error("ОШИБКА: Найдено недопустимое значение VARCHAR для поля description. Ожидается TEXT.")
+                    } else if (fieldType == 'text') {
+                        echo "УСПЕХ: Поле description имеет правильный тип TEXT. Проверка пройдена!"
+                    } else {
+                        error("НЕИЗВЕСТНЫЙ ТИП: Поле description имеет неожиданный тип: ${fieldType}")
                     }
-
-                    echo 'Поле description имеет правильный тип TEXT. Проверка пройдена!'
                 }
             }
         }  
@@ -105,4 +108,3 @@ pipeline {
         }
     }
 }
-
