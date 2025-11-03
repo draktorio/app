@@ -26,6 +26,22 @@ pipeline {
             } 
         }
             
+        stage('Remove Old Stack and Volumes') {
+            steps {
+                script {
+                    // Принудительно удаляем стек и тома
+                    sh """
+                        docker stack rm ${SWARM_STACK_NAME} || true
+                        sleep 30
+                        
+                        // Удаляем томы базы данных чтобы гарантировать пересоздание
+                        docker volume rm ${SWARM_STACK_NAME}_db_data || true
+                        docker volume prune -f || true
+                    """
+                }
+            }
+        }
+            
         stage('Deploy to Docker Swarm') {
             steps {
                 script {
@@ -44,6 +60,10 @@ pipeline {
                 script {
                     echo "Ожидание запуска сервисов..."
                     sleep 30
+                    
+                    // Ждем пока база данных полностью инициализируется
+                    echo "Ожидание инициализации базы данных..."
+                    sleep 20
                     
                     echo 'Проверка доступности фронта...'
                     sh """
@@ -73,6 +93,12 @@ pipeline {
                     // ==============================
                     echo 'Проверка типа поля description...'
 
+                    // Дополнительная проверка - выводим структуру таблицы для отладки
+                    echo 'Вывод структуры таблицы records:'
+                    sh """
+                        docker exec ${dbContainerId} mysql -u${DB_USER} -p${DB_PASSWORD} -D ${DB_NAME} -e "DESCRIBE records;"
+                    """
+
                     def fieldType = sh(
                         script: """
                             docker exec ${dbContainerId} mysql -u${DB_USER} -p${DB_PASSWORD} -D ${DB_NAME} -N -e \\
@@ -91,6 +117,12 @@ pipeline {
                     } else {
                         error("НЕИЗВЕСТНЫЙ ТИП: Поле description имеет неожиданный тип: ${fieldType}")
                     }
+                    
+                    // Дополнительная проверка - выводим все данные для отладки
+                    echo 'Вывод всех записей из таблицы:'
+                    sh """
+                        docker exec ${dbContainerId} mysql -u${DB_USER} -p${DB_PASSWORD} -D ${DB_NAME} -e "SELECT * FROM records;"
+                    """
                 }
             }
         }  
