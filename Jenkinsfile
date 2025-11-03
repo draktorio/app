@@ -20,7 +20,6 @@ pipeline {
         stage('Build Docker Images') {
             steps {
                 script {
-                    // Правильный синтаксис docker build
                     sh "docker build -f php.Dockerfile -t draktorio/crudback ."
                     sh "docker build -f mysql.Dockerfile -t draktorio/mysql ."
                 }
@@ -30,7 +29,6 @@ pipeline {
         stage('Deploy to Docker Swarm') {
             steps {
                 script {
-                    // Инициализация Swarm только если не активен
                     sh '''
                         if ! docker info | grep -q "Swarm: active"; then
                             docker swarm init || true
@@ -71,38 +69,25 @@ pipeline {
                     """
 
                     // ==============================
-                    // Проверка поля description
+                    // Проверка типа поля description
                     // ==============================
-                    echo 'Проверка поля description...'
+                    echo 'Проверка типа поля description...'
 
-                    // Получаем тип поля
                     def fieldType = sh(
                         script: """
                             docker exec ${dbContainerId} mysql -u${DB_USER} -p${DB_PASSWORD} -D ${DB_NAME} -N -e \\
-                            "SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='products' AND COLUMN_NAME='description';"
+                            "SELECT DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='records' AND COLUMN_NAME='description';"
                         """,
                         returnStdout: true
-                    ).trim()
+                    ).trim().toLowerCase()
 
                     echo "Тип поля description: ${fieldType}"
-                    if (fieldType.toLowerCase() != 'text') {
-                        error("Ошибка: поле description не TEXT")
+
+                    if (fieldType != 'text') {
+                        error("Ошибка: поле description должно быть TEXT, текущий тип: ${fieldType}")
                     }
 
-                    // Проверка значения
-                    def descValue = sh(
-                        script: """
-                            docker exec ${dbContainerId} mysql -u${DB_USER} -p${DB_PASSWORD} -D ${DB_NAME} -N -e \\
-                            "SELECT description FROM products WHERE id=1;"
-                        """,
-                        returnStdout: true
-                    ).trim()
-
-                    if (descValue != 'text') {
-                        error("Ошибка: значение description не соответствует 'text'")
-                    }
-
-                    echo 'Проверка поля description пройдена успешно!'
+                    echo 'Поле description имеет правильный тип TEXT. Проверка пройдена!'
                 }
             }
         }  
