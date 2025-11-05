@@ -21,54 +21,32 @@ pipeline {
             steps {
                 script {
                     sh "docker build -f php.Dockerfile -t draktorio/crudback ."
-                    
-                    // Принудительно пересобираем MySQL образ без кэша
-                    sh "docker build --no-cache -f mysql.Dockerfile -t draktorio/mysql ."
-                    
-                    // Проверяем что в образе правильный SQL файл
-                    sh """
-                        echo "=== Проверка содержимого SQL файла в образе ==="
-                        docker run --rm draktorio/mysql cat /docker-entrypoint-initdb.d/init.sql | grep -A 10 -B 10 "description" || true
-                    """
+                    sh "docker build -f mysql.Dockerfile -t draktorio/mysql ."
                 }
             } 
         }
             
         stage('Remove Old Stack and Volumes') {
-    steps {
-        script {
-            sh """
-                echo "=== Удаляем старый стек ==="
-                docker stack rm ${SWARM_STACK_NAME} || true
-                docker stack rm crudapp || true
-
-                echo "Ожидание остановки сервисов..."
-                sleep 25
-
-                echo "=== Удаляем контейнеры Swarm ==="
-                docker ps -aq --filter name=${SWARM_STACK_NAME} | xargs -r docker rm -f || true
-                docker ps -aq --filter name=crudapp | xargs -r docker rm -f || true
-
-                echo "=== Удаляем тома стека ==="
-                docker volume ls -q | grep -E '^(${SWARM_STACK_NAME}|crudapp).*mysql' | \
-                    xargs -r docker volume rm || true
-
-                echo "Удаляем явные названия томов на всякий случай"
-                docker volume rm ${SWARM_STACK_NAME}_mysql-data || true
-                docker volume rm crudapp_mysql-data || true
-
-                echo "=== Удаляем неиспользуемые тома ==="
-                docker volume prune -f || true
-
-                echo "=== Чистим сети ==="
-                docker network prune -f || true
-
-                echo "Проверка, что тома стека удалены:"
-                docker volume ls | grep -E '^(${SWARM_STACK_NAME}|crudapp)' || echo "✅ Томов не осталось"
-            """
+            steps {
+                script {
+                    // Принудительно удаляем стек и тома
+                    sh """
+                        # Удаляем стек
+                        docker stack rm ${SWARM_STACK_NAME} || true
+                        sleep 30
+                        
+                        # Удаляем именованный том mysql-data
+                        docker volume rm ${SWARM_STACK_NAME}_mysql-data || true
+                        
+                        # Очищаем все неиспользуемые тома
+                        docker volume prune -f || true
+                        
+                        # Убеждаемся что все контейнеры остановлены
+                        docker ps -q --filter name=${SWARM_STACK_NAME} | xargs -r docker rm -f || true
+                    """
+                }
+            }
         }
-    }
-}
             
         stage('Deploy to Docker Swarm') {
             steps {
@@ -87,11 +65,11 @@ pipeline {
             steps {
                 script {
                     echo "Ожидание запуска сервисов..."
-                    sleep 40
+                    sleep 30
                     
                     // Ждем пока база данных полностью инициализируется
                     echo "Ожидание инициализации базы данных..."
-                    sleep 30
+                    sleep 20
                     
                     echo 'Проверка доступности фронта...'
                     sh """
@@ -114,18 +92,12 @@ pipeline {
                     // Ждем пока база данных будет готова
                     echo "Ожидание готовности базы данных..."
                     sh """
-                        timeout 120s bash -c '
+                        timeout 60s bash -c '
                             until docker exec ${dbContainerId} mysql -u${DB_USER} -p${DB_PASSWORD} -e "SELECT 1;" > /dev/null 2>&1; do
                                 echo "Ждем базу данных..."
-                                sleep 10
+                                sleep 5
                             done
                         '
-                    """
-                    
-                    // Проверяем выполнился ли SQL скрипт
-                    echo "Проверка выполнения SQL скрипта инициализации..."
-                    sh """
-                        docker logs ${dbContainerId} | tail -20
                     """
                     
                     echo 'Подключение к MySQL и проверка таблиц...'
@@ -142,12 +114,6 @@ pipeline {
                     echo 'Вывод структуры таблицы records:'
                     sh """
                         docker exec ${dbContainerId} mysql -u${DB_USER} -p${DB_PASSWORD} -D ${DB_NAME} -e "DESCRIBE records;" || true
-                    """
-                    
-                    // Проверяем что именно в SQL файле
-                    echo "Проверка SQL файла в контейнере:"
-                    sh """
-                        docker exec ${dbContainerId} cat /docker-entrypoint-initdb.d/init.sql | grep -A 5 -B 5 "description" || true
                     """
 
                     def fieldType = sh(
@@ -191,4 +157,3 @@ pipeline {
         }
     }
 }
-
