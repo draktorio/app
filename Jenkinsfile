@@ -8,6 +8,7 @@ pipeline {
         DB_PASSWORD = 'secret'
         DB_NAME = 'lena'
         FRONTEND_URL = 'http://192.168.0.1:8080'
+        MYSQL_IMAGE = 'draktorio/mysql:latest' // Используем свежий билд
     }
 
     stages {
@@ -21,7 +22,7 @@ pipeline {
             steps {
                 script {
                     sh "docker build --no-cache -f php.Dockerfile -t draktorio/crudback ."
-                    sh "docker build --no-cache -f mysql.Dockerfile -t draktorio/mysql ."
+                    sh "docker build --no-cache -f mysql.Dockerfile -t ${MYSQL_IMAGE} ."
                 }
             }
         }
@@ -50,11 +51,19 @@ pipeline {
         stage('Deploy to Docker Swarm') {
             steps {
                 script {
-                    sh """
+                    // Инициализируем Swarm, если ещё не активен
+                    sh '''
                         if ! docker info | grep -q "Swarm: active"; then
                             docker swarm init || true
                         fi
+                    '''
+
+                    // Перезаписываем docker-compose.yaml с использованием свежего образа MySQL
+                    sh """
+                        sed -i 's|image: draktorio/mysql.*|image: ${MYSQL_IMAGE}|g' docker-compose.yaml
                     """
+
+                    // Деплой стека
                     sh "docker stack deploy --with-registry-auth -c docker-compose.yaml ${SWARM_STACK_NAME}"
                 }
             }
