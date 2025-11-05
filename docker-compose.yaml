@@ -1,7 +1,7 @@
 version: "3.7"
 services:
   web-server:
-    image: draktorio/crudback
+    image: draktorio/crudback:latest
     restart: always
     ports:
       - "8080:80"
@@ -9,7 +9,7 @@ services:
       - db
       - phpmyadmin
   db:
-    image: draktorio/mysql
+    image: draktorio/mysql:latest
     restart: always
     environment:
       MYSQL_ROOT_PASSWORD: 'secret'
