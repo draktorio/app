@@ -21,7 +21,7 @@ pipeline {
             steps {
                 script {
                     sh "docker build -f php.Dockerfile -t draktorio/crudback ."
-                    sh "docker build -f mysql.Dockerfile -t draktorio/mysql ."
+                    sh "docker build --no-cache -f mysql.Dockerfile -t draktorio/mysql ."
                 }
             } 
         }
@@ -157,3 +157,4 @@ pipeline {
         }
     }
 }
+
