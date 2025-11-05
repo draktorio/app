@@ -28,5 +28,5 @@ services:
       PMA_PASSWORD: 'secret'
     ports:
       - "5000:80"
-volumes:
-  mysql-data:
+#volumes:
+  #mysql-data:
