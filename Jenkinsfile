@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        SWARM_STACK_NAME = "crudapp"
+        SWARM_STACK_NAME = "app"
         DB_SERVICE = 'db'
         DB_USER = 'root'
         DB_PASSWORD = 'secret'
@@ -28,7 +28,7 @@ pipeline {
                     // Проверяем что в образе правильный SQL файл
                     sh """
                         echo "=== Проверка содержимого SQL файла в образе ==="
-                        docker run --rm draktorio/mysql cat /docker-entrypoint-initdb.d/init.sql | grep -i "description"
+                        docker run --rm draktorio/mysql cat /docker-entrypoint-initdb.d/init.sql | grep -A 10 -B 10 "description" || true
                     """
                 }
             } 
@@ -41,16 +41,23 @@ pipeline {
                     sh """
                         # Удаляем стек
                         docker stack rm ${SWARM_STACK_NAME} || true
+                        docker stack rm crudapp || true
                         sleep 30
                         
-                        # Удаляем все тома связанные с приложением
-                        docker volume ls -q --filter name=${SWARM_STACK_NAME} | xargs -r docker volume rm -f || true
+                        # Удаляем ВСЕ возможные тома базы данных
+                        docker volume rm ${SWARM_STACK_NAME}_mysql-data || true
+                        docker volume rm crudapp_mysql-data || true
+                        docker volume rm mysql-data || true
+                        
+                        # Удаляем все тома содержащие mysql в названии
+                        docker volume ls | grep mysql | awk '{print \$2}' | xargs -r docker volume rm -f || true
                         
                         # Очищаем все неиспользуемые тома
                         docker volume prune -f || true
                         
                         # Убеждаемся что все контейнеры остановлены
                         docker ps -aq --filter name=${SWARM_STACK_NAME} | xargs -r docker rm -f || true
+                        docker ps -aq --filter name=crudapp | xargs -r docker rm -f || true
                         
                         # Дополнительная очистка сетей
                         docker network prune -f || true
@@ -114,7 +121,7 @@ pipeline {
                     // Проверяем выполнился ли SQL скрипт
                     echo "Проверка выполнения SQL скрипта инициализации..."
                     sh """
-                        docker logs ${dbContainerId} | grep -i "init.sql" || echo "SQL скрипт не найден в логах"
+                        docker logs ${dbContainerId} | tail -20
                     """
                     
                     echo 'Подключение к MySQL и проверка таблиц...'
@@ -180,4 +187,3 @@ pipeline {
         }
     }
 }
-
