@@ -20,11 +20,12 @@ pipeline {
         stage('Build Docker Images') {
             steps {
                 script {
-                    sh "docker build -f php.Dockerfile -t draktorio/crudback ."
+                    sh "docker build --no-cache -f php.Dockerfile -t draktorio/crudback ."
                     sh "docker build --no-cache -f mysql.Dockerfile -t draktorio/mysql ."
                 }
-            } 
+            }
         }
+
             
         stage('Remove Old Stack and Volumes') {
             steps {
@@ -157,4 +158,5 @@ pipeline {
         }
     }
 }
+
 
