@@ -26,23 +26,21 @@ pipeline {
             }
         }
 
-            
         stage('Remove Old Stack and Volumes') {
             steps {
                 script {
-                    // Принудительно удаляем стек и тома
                     sh """
-                        # Удаляем стек
+                        echo "Удаляем старый стек и контейнеры..."
                         docker stack rm ${SWARM_STACK_NAME} || true
-                        sleep 30
-                        
-                        # Удаляем именованный том mysql-data
+                        sleep 20
+
+                        echo "Удаляем старый том базы данных..."
                         docker volume rm ${SWARM_STACK_NAME}_mysql-data || true
-                        
-                        # Очищаем все неиспользуемые тома
+
+                        echo "Очищаем неиспользуемые тома..."
                         docker volume prune -f || true
-                        
-                        # Убеждаемся что все контейнеры остановлены
+
+                        echo "Удаляем все контейнеры старого стека..."
                         docker ps -q --filter name=${SWARM_STACK_NAME} | xargs -r docker rm -f || true
                     """
                 }
@@ -52,11 +50,11 @@ pipeline {
         stage('Deploy to Docker Swarm') {
             steps {
                 script {
-                    sh '''
+                    sh """
                         if ! docker info | grep -q "Swarm: active"; then
                             docker swarm init || true
                         fi
-                    '''
+                    """
                     sh "docker stack deploy --with-registry-auth -c docker-compose.yaml ${SWARM_STACK_NAME}"
                 }
             }
@@ -68,15 +66,14 @@ pipeline {
                     echo "Ожидание запуска сервисов..."
                     sleep 30
                     
-                    // Ждем пока база данных полностью инициализируется
                     echo "Ожидание инициализации базы данных..."
                     sleep 20
                     
                     echo 'Проверка доступности фронта...'
                     sh """
                         if ! curl -fsS ${FRONTEND_URL}; then
-                           echo 'Front недоступен'
-                           exit 1
+                            echo 'Front недоступен'
+                            exit 1
                         fi
                     """
                     
@@ -90,7 +87,6 @@ pipeline {
                         error("Контейнер DB не найден")
                     }
                     
-                    // Ждем пока база данных будет готова
                     echo "Ожидание готовности базы данных..."
                     sh """
                         timeout 60s bash -c '
@@ -102,61 +98,22 @@ pipeline {
                     """
                     
                     echo 'Подключение к MySQL и проверка таблиц...'
-                    sh """
-                        docker exec ${dbContainerId} mysql -u${DB_USER} -p${DB_PASSWORD} -e 'USE ${DB_NAME}; SHOW TABLES;'
-                    """
+                    sh "docker exec ${dbContainerId} mysql -u${DB_USER} -p${DB_PASSWORD} -e 'USE ${DB_NAME}; SHOW TABLES;'"
 
-                    // ==============================
-                    // Проверка типа поля description
-                    // ==============================
                     echo 'Проверка типа поля description...'
-
-                    // Дополнительная проверка - выводим структуру таблицы для отладки
-                    echo 'Вывод структуры таблицы records:'
-                    sh """
-                        docker exec ${dbContainerId} mysql -u${DB_USER} -p${DB_PASSWORD} -D ${DB_NAME} -e "DESCRIBE records;" || true
-                    """
-
                     def fieldType = sh(
                         script: """
                             docker exec ${dbContainerId} mysql -u${DB_USER} -p${DB_PASSWORD} -D ${DB_NAME} -N -e \\
-                            "SELECT DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='records' AND COLUMN_NAME='description';" 2>/dev/null || echo "unknown"
+                            "SELECT DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='records' AND COLUMN_NAME='description';"
                         """,
                         returnStdout: true
                     ).trim().toLowerCase()
 
                     echo "Тип поля description: ${fieldType}"
 
-                    // Исправленная проверка
                     if (fieldType == 'varchar') {
                         error("ОШИБКА: Найдено недопустимое значение VARCHAR для поля description. Ожидается TEXT.")
                     } else if (fieldType == 'text') {
                         echo "УСПЕХ: Поле description имеет правильный тип TEXT. Проверка пройдена!"
                     } else {
-                        error("НЕИЗВЕСТНЫЙ ТИП: Поле description имеет неожиданный тип: ${fieldType}")
-                    }
-                    
-                    // Дополнительная проверка - выводим все данные для отладки
-                    echo 'Вывод всех записей из таблицы:'
-                    sh """
-                        docker exec ${dbContainerId} mysql -u${DB_USER} -p${DB_PASSWORD} -D ${DB_NAME} -e "SELECT * FROM records;" || true
-                    """
-                }
-            }
-        }  
-    }
-
-    post {
-        success {
-            echo 'Deployment completed successfully!'
-        }
-        failure {
-            echo 'Deployment failed!'
-        }
-        always {
-            cleanWs()
-        }
-    }
-}
-
-
+                        error("НЕИЗВЕСТНЫЙ ТИП: Поле description имеет неожид
