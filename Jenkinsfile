@@ -21,7 +21,15 @@ pipeline {
             steps {
                 script {
                     sh "docker build -f php.Dockerfile -t draktorio/crudback ."
-                    sh "docker build -f mysql.Dockerfile -t draktorio/mysql ."
+                    
+                    // Принудительно пересобираем MySQL образ без кэша
+                    sh "docker build --no-cache -f mysql.Dockerfile -t draktorio/mysql ."
+                    
+                    // Проверяем что в образе правильный SQL файл
+                    sh """
+                        echo "=== Проверка содержимого SQL файла в образе ==="
+                        docker run --rm draktorio/mysql cat /docker-entrypoint-initdb.d/init.sql | grep -i "description"
+                    """
                 }
             } 
         }
@@ -35,14 +43,17 @@ pipeline {
                         docker stack rm ${SWARM_STACK_NAME} || true
                         sleep 30
                         
-                        # Удаляем именованный том mysql-data
-                        docker volume rm ${SWARM_STACK_NAME}_mysql-data || true
+                        # Удаляем все тома связанные с приложением
+                        docker volume ls -q --filter name=${SWARM_STACK_NAME} | xargs -r docker volume rm -f || true
                         
                         # Очищаем все неиспользуемые тома
                         docker volume prune -f || true
                         
                         # Убеждаемся что все контейнеры остановлены
-                        docker ps -q --filter name=${SWARM_STACK_NAME} | xargs -r docker rm -f || true
+                        docker ps -aq --filter name=${SWARM_STACK_NAME} | xargs -r docker rm -f || true
+                        
+                        # Дополнительная очистка сетей
+                        docker network prune -f || true
                     """
                 }
             }
@@ -65,11 +76,11 @@ pipeline {
             steps {
                 script {
                     echo "Ожидание запуска сервисов..."
-                    sleep 30
+                    sleep 40
                     
                     // Ждем пока база данных полностью инициализируется
                     echo "Ожидание инициализации базы данных..."
-                    sleep 20
+                    sleep 30
                     
                     echo 'Проверка доступности фронта...'
                     sh """
@@ -92,12 +103,18 @@ pipeline {
                     // Ждем пока база данных будет готова
                     echo "Ожидание готовности базы данных..."
                     sh """
-                        timeout 60s bash -c '
+                        timeout 120s bash -c '
                             until docker exec ${dbContainerId} mysql -u${DB_USER} -p${DB_PASSWORD} -e "SELECT 1;" > /dev/null 2>&1; do
                                 echo "Ждем базу данных..."
-                                sleep 5
+                                sleep 10
                             done
                         '
+                    """
+                    
+                    // Проверяем выполнился ли SQL скрипт
+                    echo "Проверка выполнения SQL скрипта инициализации..."
+                    sh """
+                        docker logs ${dbContainerId} | grep -i "init.sql" || echo "SQL скрипт не найден в логах"
                     """
                     
                     echo 'Подключение к MySQL и проверка таблиц...'
@@ -114,6 +131,12 @@ pipeline {
                     echo 'Вывод структуры таблицы records:'
                     sh """
                         docker exec ${dbContainerId} mysql -u${DB_USER} -p${DB_PASSWORD} -D ${DB_NAME} -e "DESCRIBE records;" || true
+                    """
+                    
+                    // Проверяем что именно в SQL файле
+                    echo "Проверка SQL файла в контейнере:"
+                    sh """
+                        docker exec ${dbContainerId} cat /docker-entrypoint-initdb.d/init.sql | grep -A 5 -B 5 "description" || true
                     """
 
                     def fieldType = sh(
