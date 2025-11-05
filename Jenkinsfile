@@ -35,36 +35,40 @@ pipeline {
         }
             
         stage('Remove Old Stack and Volumes') {
-            steps {
-                script {
-                    // Принудительно удаляем стек и тома
-                    sh """
-                        # Удаляем стек
-                        docker stack rm ${SWARM_STACK_NAME} || true
-                        docker stack rm crudapp || true
-                        sleep 30
-                        
-                        # Удаляем ВСЕ возможные тома базы данных
-                        docker volume rm ${SWARM_STACK_NAME}_mysql-data || true
-                        docker volume rm crudapp_mysql-data || true
-                        docker volume rm mysql-data || true
-                        
-                        # Удаляем все тома содержащие mysql в названии
-                        docker volume ls | grep mysql | awk '{print \$2}' | xargs -r docker volume rm -f || true
-                        
-                        # Очищаем все неиспользуемые тома
-                        docker volume prune -f || true
-                        
-                        # Убеждаемся что все контейнеры остановлены
-                        docker ps -aq --filter name=${SWARM_STACK_NAME} | xargs -r docker rm -f || true
-                        docker ps -aq --filter name=crudapp | xargs -r docker rm -f || true
-                        
-                        # Дополнительная очистка сетей
-                        docker network prune -f || true
-                    """
-                }
-            }
+    steps {
+        script {
+            sh """
+                echo "=== Удаляем старый стек ==="
+                docker stack rm ${SWARM_STACK_NAME} || true
+                docker stack rm crudapp || true
+
+                echo "Ожидание остановки сервисов..."
+                sleep 25
+
+                echo "=== Удаляем контейнеры Swarm ==="
+                docker ps -aq --filter name=${SWARM_STACK_NAME} | xargs -r docker rm -f || true
+                docker ps -aq --filter name=crudapp | xargs -r docker rm -f || true
+
+                echo "=== Удаляем тома стека ==="
+                docker volume ls -q | grep -E '^(${SWARM_STACK_NAME}|crudapp).*mysql' | \
+                    xargs -r docker volume rm || true
+
+                echo "Удаляем явные названия томов на всякий случай"
+                docker volume rm ${SWARM_STACK_NAME}_mysql-data || true
+                docker volume rm crudapp_mysql-data || true
+
+                echo "=== Удаляем неиспользуемые тома ==="
+                docker volume prune -f || true
+
+                echo "=== Чистим сети ==="
+                docker network prune -f || true
+
+                echo "Проверка, что тома стека удалены:"
+                docker volume ls | grep -E '^(${SWARM_STACK_NAME}|crudapp)' || echo "✅ Томов не осталось"
+            """
         }
+    }
+}
             
         stage('Deploy to Docker Swarm') {
             steps {
@@ -187,3 +191,4 @@ pipeline {
         }
     }
 }
+
