@@ -8,7 +8,7 @@ pipeline {
         DB_PASSWORD = 'secret'
         DB_NAME = 'lena'
         FRONTEND_URL = 'http://192.168.0.1:8080'
-        MYSQL_IMAGE = 'local/mysql-lena:latest' // наш кастомный образ
+        MYSQL_IMAGE = 'local/mysql-lena:latest'
     }
 
     stages {
@@ -149,3 +149,4 @@ pipeline {
         }
     }
 }
+
